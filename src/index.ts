@@ -27,6 +27,17 @@ type Measure_Data = {
   has_confirmed? : boolean | null
 }
 
+type Measure_List = {
+  measures: {
+    uuid: string;
+    measure_datetime: Date;
+    measure_type: "WATER" | "GAS";
+    image_url: string;
+    has_confirmed?: boolean | null;
+  }[];
+};
+
+
 async function uploadImg(){
 
 
@@ -254,7 +265,61 @@ app.patch('/confirm', async (req, res) => {
 
 });
 
+app.get('/:code/list',async (req, res) => {
+  // Define o código de status 200 e envia uma resposta JSON personalizada
+  const measureTypeParam = req.query.measure_type;
+  const { code } = req.params;
 
+  const measure_type = typeof measureTypeParam === 'string' ? measureTypeParam.toUpperCase() : null;
+  let rows: Measure_List[] = [];
+
+   if(!measure_type){
+    rows = await query<Measure_List>(
+      `SELECT id, measure_datetime, measure_type, image_url, has_confirmed
+       FROM data_record WHERE customer_code = ?`,
+      [code]
+    );
+
+    if((rows as Measure_List[]).length === 0){
+    return res.status(404).json({
+        error_code: "MEASURES_NOT_FOUND",
+        message: "Nenhuma leitura encontrada",
+      });
+  };
+
+    return res.status(200).json({
+      customer_code: code,
+      measures: rows,
+    });
+  }
+
+    if(measure_type == "WATER" || measure_type == "GAS"){
+      rows  = await query<Measure_List>(
+      `SELECT id, measure_datetime, measure_type, image_url, has_confirmed
+       FROM data_record WHERE customer_code = ? and UPPER(measure_type) = ?`,
+      [code, measure_type]
+    );
+
+    if((rows as Measure_List[]).length === 0){
+    return res.status(404).json({
+        error_code: "MEASURES_NOT_FOUND",
+        message: "Nenhuma leitura encontrada",
+      });
+  };
+
+    return res.status(200).json({
+      customer_code: code,
+      measures: rows,
+    });
+
+    }else{
+      return res.status(400).json({
+        error_code: "INVALID_TYPE",
+        message: "Tipo de medição não permitida",
+      });
+    }  
+
+});
 
 // Inicia o servidor
 app.listen(port, () => {
