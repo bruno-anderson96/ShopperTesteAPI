@@ -11,8 +11,13 @@ const connectionConfig = {
 // Cria uma pool de conexões
 export const pool = mysql.createPool(connectionConfig);
 
-// Função auxiliar para executar consultas
-export async function query(sql: string, values?: any[]) {
+// // Função auxiliar para executar consultas
+// export async function query(sql: string, values?: any[]) {
+//   const [rows] = await pool.execute(sql, values);
+//   return rows;
+// }
+
+export async function query<T>(sql: string, values?: any[]): Promise<T[]> {
   const [rows] = await pool.execute(sql, values);
-  return rows;
+  return rows as T[];
 }
