@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ShopperFull
+    working_dir: /src
+    volumes:
+      - .:/usr/src
+    command: npm start
+    depends_on:
+      - db
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST: db
+      DB_USER: root
+      DB_PASSWORD: '@Anderson1996'
+      DB_NAME: shopper
+
+  db:
+    image: mysql:8.0
+    container_name: mydb
+    environment:
+      MYSQL_ROOT_PASSWORD: '@Anderson1996'
+      MYSQL_DATABASE: 'shopper'
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+
+volumes:
+  db_data:

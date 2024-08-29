@@ -2,6 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import { query } from './database';
 import { v4 as uuidv4 } from 'uuid';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
 
@@ -38,15 +40,15 @@ type Measure_List = {
 };
 
 
-async function uploadImg(){
+async function uploadImg(base64Image: string){
 
-
+try{
 // Access your API key as an environment variable
   const genAI = new GoogleGenerativeAI(geminiApiKey as string);
 
   const fileManager = new GoogleAIFileManager(geminiApiKey as string);
-
-  const uploadResponse = await fileManager.uploadFile("src/img/medidor2.jpg", {
+  console.log(saveBase64ToTempFile(base64Image));
+  const uploadResponse = await fileManager.uploadFile(saveBase64ToTempFile(base64Image), {
     mimeType: "image/jpeg",
     displayName: "Medidor",
   });
@@ -56,32 +58,39 @@ async function uploadImg(){
   const getResponse = await fileManager.getFile(uploadResponse.file.name);
 
   console.log(`Retrieved file ${getResponse.displayName} as ${getResponse.uri}`);
+  
 
-//
-  const model = genAI.getGenerativeModel({
+    const model = genAI.getGenerativeModel({
   // Choose a Gemini model.
-    model: "gemini-1.5-pro",
-  });
-
-// Upload file ...
+      model: "gemini-1.5-pro",
+    });
 
 // Generate content using text and the URI reference for the uploaded file.
-  const result = await model.generateContent([
-  {
-    fileData: {
-      mimeType: uploadResponse.file.mimeType,
-      fileUri: uploadResponse.file.uri
-    }
-  },
-  { text: "Me diga apenas o valor que marca neste medidor em numero inteiro e nada mais" },
-  ]);
+    const result = await model.generateContent([
+    {
+      fileData: {
+        mimeType: uploadResponse.file.mimeType,
+        fileUri: uploadResponse.file.uri
+      }
+    },
+    { text: "Me diga apenas o valor que marca neste medidor em numero inteiro e nada mais" },
+    ]);
 
 // Output the generated text to the console
-  const response = result.response.text();
+    const response = await result.response.text();
+
   return {
     measure_value: parseFloat(response.replace(/[^\d.-]/g, '')),
     image_url: getResponse.uri
   };
+
+    }catch{
+    return {
+      measure_value: 0,
+      image_url: ''
+    };
+  }
+
 };
 
 function isBase64(str: string): boolean {
@@ -90,8 +99,8 @@ function isBase64(str: string): boolean {
 }
 
 function isValidMeasureType(type: string): type is "WATER" | "GAS" {
-  const UpperFormat = type.toUpperCase();
-  return type === "WATER" || type === "GAS";
+  const upperFormat = type.toUpperCase();
+  return upperFormat === "WATER" || upperFormat === "GAS";
 }
 
 function generateUUID(): string {
@@ -104,6 +113,24 @@ function getMonthAndYearFromTimestamp(timestamp: Date): { month: number; year: n
   const year = date.getFullYear();
   return { month, year };
 }
+
+const saveBase64ToTempFile = (base64Image: string): string => {
+  // Extrair a parte da imagem Base64 (remover o prefixo "data:image/jpeg;base64,")
+  const base64Data = base64Image.replace(/^data:image\/jpeg;base64,/, '');
+
+  // Converter a string Base64 para um Buffer
+  const imageBuffer = Buffer.from(base64Data, 'base64');
+
+  // Definir o caminho do arquivo temporário
+  const tempFilePath = path.join(__dirname, 'medidor.jpg');
+
+  // Salvar o Buffer em um arquivo
+  fs.writeFileSync(tempFilePath, imageBuffer);
+
+  // Retornar o caminho do arquivo temporário
+  return tempFilePath;
+};
+
 
 
 // uploadImg();
@@ -119,7 +146,7 @@ app.use(express.json());
 app.get('/', (req, res) => {
   // Define o código de status 200 e envia uma resposta JSON personalizada
   res.status(200).json({
-    message: 'Hello Shopper',
+    message: 'Hello Shopper teste',
     timestamp: new Date().toISOString()
   });
 
@@ -162,8 +189,7 @@ app.post('/upload', async (req, res) => {
   data.measure_datetime = new Date();
   const {month, year} = getMonthAndYearFromTimestamp(data.measure_datetime);
 
-  console.log(data)
-  if(!isBase64(data.image) || (data.customer_code == null) || (!data.measure_type)){
+  if(!isBase64(data.image) || (data.customer_code == null) || (!isValidMeasureType(data.measure_type))){
     return res.status(400).json({
       error: 'INVALID_DATA',
       message: "Os dados fornecidos no corpo da requisição são inválidos"
@@ -172,11 +198,19 @@ app.post('/upload', async (req, res) => {
 
   //Checa se já existe no banco
   const rows = await query(
-    `Select * from data_record where measure_type = ? and img = ? and MONTH(?) and YEAR(?)`,
-    [data.measure_type, data.image, data.measure_datetime, data.measure_datetime]
+    `Select * from data_record where measure_type = ? and customer_code = ? and MONTH(?) and YEAR(?)`,
+    [data.measure_type, data.customer_code, data.measure_datetime, data.measure_datetime]
     );
   if((rows as any[]).length === 0){
-    const md: Measure_Data = await uploadImg();
+    const md: Measure_Data = await uploadImg(data.image);
+
+    if(md.measure_value==0){
+      return res.status(500).json({
+        error: 'INTERNAL_SERVER_ERROR',
+        message: "Erro de servidor."
+      })
+    }
+
     data.uuid = generateUUID();
     await query(
       'INSERT INTO data_record(id, measure_type, img, measure_datetime, customer_code, image_url, measure_value) VALUES (?,?,?,?,?,?,?)',
@@ -185,7 +219,9 @@ app.post('/upload', async (req, res) => {
 
     res.status(200).json({
       message: 'Novo registro de medição adicionado com sucesso',
-      timestamp: new Date().toISOString()
+      img_url: md.image_url,
+      id: data.uuid,
+      measure_value: md.measure_value 
     });
   }else{
     return res.status(409).json({
@@ -199,7 +235,6 @@ app.post('/upload', async (req, res) => {
 
 app.patch('/confirm', async (req, res) => {
   const data: updateRecord = req.body;
-  "{uuid, confirmed_value}"
 
   if(data.measure_uuid == null){
     return res.status(400).json({
@@ -273,19 +308,19 @@ app.get('/:code/list',async (req, res) => {
   const measure_type = typeof measureTypeParam === 'string' ? measureTypeParam.toUpperCase() : null;
   let rows: Measure_List[] = [];
 
-   if(!measure_type){
+  if(!measure_type){
     rows = await query<Measure_List>(
       `SELECT id, measure_datetime, measure_type, image_url, has_confirmed
-       FROM data_record WHERE customer_code = ?`,
+      FROM data_record WHERE customer_code = ?`,
       [code]
-    );
+      );
 
     if((rows as Measure_List[]).length === 0){
-    return res.status(404).json({
+      return res.status(404).json({
         error_code: "MEASURES_NOT_FOUND",
         message: "Nenhuma leitura encontrada",
       });
-  };
+    };
 
     return res.status(200).json({
       customer_code: code,
@@ -293,35 +328,35 @@ app.get('/:code/list',async (req, res) => {
     });
   }
 
-    if(measure_type == "WATER" || measure_type == "GAS"){
-      rows  = await query<Measure_List>(
+  if(measure_type == "WATER" || measure_type == "GAS"){
+    rows  = await query<Measure_List>(
       `SELECT id, measure_datetime, measure_type, image_url, has_confirmed
-       FROM data_record WHERE customer_code = ? and UPPER(measure_type) = ?`,
+      FROM data_record WHERE customer_code = ? and measure_type = ?`,
       [code, measure_type]
-    );
+      );
 
     if((rows as Measure_List[]).length === 0){
-    return res.status(404).json({
+      return res.status(404).json({
         error_code: "MEASURES_NOT_FOUND",
         message: "Nenhuma leitura encontrada",
       });
-  };
+    };
 
     return res.status(200).json({
       customer_code: code,
       measures: rows,
     });
 
-    }else{
-      return res.status(400).json({
-        error_code: "INVALID_TYPE",
-        message: "Tipo de medição não permitida",
-      });
-    }  
+  }else{
+    return res.status(400).json({
+      error_code: "INVALID_TYPE",
+      message: "Tipo de medição não permitida",
+    });
+  }  
 
 });
 
 // Inicia o servidor
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`Server is running at http://localhost:${port}`);
 });
