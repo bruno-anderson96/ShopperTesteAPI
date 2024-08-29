@@ -32,6 +32,8 @@ services:
       - "3306:3306"
     volumes:
       - db_data:/var/lib/mysql
+      - ./src/database/shopper_data_record.sql:/docker-entrypoint-initdb.d/shopper_data_record.sql
 
 volumes:
   db_data:
+
