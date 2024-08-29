@@ -19,6 +19,8 @@ services:
       DB_USER: root
       DB_PASSWORD: '@Anderson1996'
       DB_NAME: shopper
+    env_file:
+      - .env
 
   db:
     image: mysql:8.0

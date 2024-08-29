@@ -146,41 +146,13 @@ app.use(express.json());
 app.get('/', (req, res) => {
   // Define o código de status 200 e envia uma resposta JSON personalizada
   res.status(200).json({
-    message: 'Hello Shopper teste',
+    message: 'Hello Shoppers!',
     timestamp: new Date().toISOString()
   });
 
   res.status(400).json({
     message: 'Erro',
   });
-});
-
-app.get('/teste', (req, res) => {
-  // Define o código de status 200 e envia uma resposta JSON personalizada
-  const { param } = req.query;
-
-  if(!param){
-    return res.status(400).json({
-      error: 'Bad Request',
-      message: "Missing param"
-    });
-  }
-
-  res.status(200).json({
-    message: 'Teste concluido com sucesso',
-    timestamp: new Date().toISOString()
-  });
-
-});
-
-app.get('/records', async (req, res) => {
-  try{
-    const results = await query("Select * from data_record");
-    res.status(200).json(results);
-  }catch(error){
-    res.status(500).json({ error: "Check your database"})
-  }
-
 });
 
 app.post('/upload', async (req, res) => {
@@ -301,7 +273,6 @@ app.patch('/confirm', async (req, res) => {
 });
 
 app.get('/:code/list',async (req, res) => {
-  // Define o código de status 200 e envia uma resposta JSON personalizada
   const measureTypeParam = req.query.measure_type;
   const { code } = req.params;
 
